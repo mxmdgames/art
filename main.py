@@ -1,9 +1,7 @@
 import streamlit as st
 import requests
-import ollama
 from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
-import re
 
 # Configure Streamlit page
 st.set_page_config(
@@ -14,7 +12,6 @@ st.set_page_config(
 
 # API Configuration
 ART_INSTITUTE_API = "https://api.artic.edu/api/v1/"
-AVAILABLE_MODELS = ['deepseek-r1:7b']
 PLACEHOLDER_IMAGE = "https://via.placeholder.com/300x400.png?text=No+Image+Available"
 ARTWORKS_PER_PAGE = 5  # Number of artworks to load per page
 
@@ -23,8 +20,6 @@ if 'selected_artist' not in st.session_state:
     st.session_state.selected_artist = None
 if 'selected_artwork' not in st.session_state:
     st.session_state.selected_artwork = None
-if 'messages' not in st.session_state:
-    st.session_state.messages = []
 if 'web_context' not in st.session_state:
     st.session_state.web_context = []
 if 'artworks_list' not in st.session_state:
@@ -172,64 +167,6 @@ def web_research_artwork(artwork_title, artist_name):
         return []
 
 
-def build_chat_context():
-    """Combine all available context sources"""
-    artist = st.session_state.selected_artist
-    artwork = st.session_state.selected_artwork
-
-    context_parts = [
-        "## Artist Information:",
-        f"Name: {artist.get('title', 'Unknown')}",
-        f"Lifespan: {artist.get('birth_date', 'Unknown')} - {artist.get('death_date', 'Unknown')}",
-        f"Description: {artist.get('description', 'No description available')}",
-        "\n## Artwork Details:",
-        f"Title: {artwork.get('title', 'Untitled')}",
-        f"Date: {artwork.get('date_display', 'Unknown')}",
-        f"Medium: {artwork.get('medium_display', 'Unknown')}",
-        f"Dimensions: {artwork.get('dimensions', 'N/A')}",
-        f"Styles: {', '.join(artwork.get('style_titles', []))}",
-        "\n## Web Research Context:"
-    ]
-
-    if st.session_state.web_context:
-        for idx, source in enumerate(st.session_state.web_context, 1):
-            context_parts.append(f"### Source {idx}: {source['source']}")
-            context_parts.append(f"{source['content']}")
-    else:
-        context_parts.append("No additional web context found.")
-
-    return '\n'.join(context_parts)
-
-
-def generate_chat_response(prompt):
-    """Generate AI response with hidden reasoning"""
-    context = build_chat_context()
-    system_prompt = f"""You are an art history expert. First think step-by-step between <think> tags, 
-    then provide a final answer between </think> tags. Use this context:
-    {context}
-
-    Guidelines:
-    1. Be concise but informative
-    2. Cite web sources when referencing information gleaned from them
-    3. If you don't know, offer something the research does tell you
-    4. Explain technical terms clearly
-    5. If unsure, say 'I don't have enough information'"""
-
-    try:
-        response = ollama.chat(
-            model=st.session_state.selected_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        # Remove reasoning and keep only final answer
-        full_response = response['message']['content']
-        return re.sub(r'<think>.*?</think>', '', full_response, flags=re.DOTALL).strip()
-    except Exception as e:
-        return f"Error generating response: {str(e)}"
-
-
 def display_artist_selection():
     """Main artist selection interface"""
     st.header("Artwork Context Explorer")
@@ -259,7 +196,6 @@ def display_artist_selection():
                     ):
                         full_details = get_artist_details(artist_id)
                         st.session_state.selected_artist = full_details
-                        st.session_state.messages = []
                         st.session_state.artworks_list = []
                         st.session_state.artworks_current_page = 1
                         st.session_state.has_more_artworks = True
@@ -292,14 +228,14 @@ def display_artwork_analysis():
                 image_id = artwork.get('image_id')
                 st.image(
                     f"https://www.artic.edu/iiif/2/{image_id}/full/300,/0/default.jpg" if image_id else PLACEHOLDER_IMAGE,
-                    use_column_width=True,
+                    use_container_width=True,
                     caption=artwork.get('title', 'Untitled')
                 )
 
                 if st.button(
-                        "Analyze this artwork",
+                        "View Details",
                         key=f"artwork_{artwork.get('id', idx)}",
-                        help="Click to analyze this artwork",
+                        help="Click to view details",
                         use_container_width=True
                 ):
                     st.session_state.selected_artwork = get_artwork_details(artwork.get('id', ''))
@@ -307,7 +243,6 @@ def display_artwork_analysis():
                         st.session_state.selected_artwork['title'],
                         st.session_state.selected_artist['title']
                     )
-                    st.session_state.messages = []
                     st.rerun()
 
         # Load More button
@@ -330,38 +265,13 @@ def display_artwork_analysis():
         st.warning("No artworks found for this artist.")
 
 
-def display_chat_interface():
-    """Artwork analysis chat interface"""
-    st.subheader("Artwork Analysis Chat")
-
-    # Display chat history
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    # Handle user input
-    if prompt := st.chat_input("Ask about this artwork..."):
-        # Add user message to history
-        st.session_state.messages.append({"role": "user", "content": prompt})
-
-        # Generate response
-        with st.spinner("Analyzing..."):
-            response = generate_chat_response(prompt)
-
-        # Add assistant response to history
-        st.session_state.messages.append({"role": "assistant", "content": response})
-
-        # Rerun to update display
-        st.rerun()
-
-
 def display_analysis_panel():
-    """Main analysis interface with chat"""
+    """Main analysis interface"""
     if not st.session_state.selected_artwork:
         return
 
     artwork = st.session_state.selected_artwork
-    st.header(f"Analysis: {artwork.get('title', 'Untitled')}")
+    st.header(f"Details: {artwork.get('title', 'Untitled')}")
 
     with st.expander("Basic Information", expanded=True):
         col1, col2 = st.columns([1, 2])
@@ -369,7 +279,7 @@ def display_analysis_panel():
             image_id = artwork.get('image_id')
             st.image(
                 f"https://www.artic.edu/iiif/2/{image_id}/full/800,/0/default.jpg" if image_id else PLACEHOLDER_IMAGE,
-                use_column_width=True,
+                use_container_width=True,
                 caption=f"{artwork['title']} by {artwork['artist_title']}"
             )
 
@@ -388,25 +298,23 @@ def display_analysis_panel():
                 **Artist Lifespan:** {artist.get('birth_date', '?')} - {artist.get('death_date', '?')}  
                 """)
 
-    # Chat interface
-    st.divider()
-    display_chat_interface()
+    # Display web research context if available
+    if st.session_state.web_context:
+        st.divider()
+        st.subheader("Research Context")
+        for idx, source in enumerate(st.session_state.web_context, 1):
+            with st.expander(f"Source {idx}: {source['source']}"):
+                st.write(source['content'])
 
 
 def main():
     # Sidebar controls
     with st.sidebar:
-        st.header("Analysis Settings")
-        try:
-            st.session_state.selected_model = st.selectbox("AI Model", AVAILABLE_MODELS)
-        except Exception as e:
-            st.error(f"Model loading error: {str(e)}")
-            return
-
+        st.header("Artwork Explorer")
+        
         if st.button("🔄 Start New Search", use_container_width=True):
             st.session_state.selected_artist = None
             st.session_state.selected_artwork = None
-            st.session_state.messages = []
             st.session_state.web_context = []
             st.session_state.artworks_list = []
             st.session_state.artworks_current_page = 1
@@ -415,10 +323,9 @@ def main():
 
         st.markdown("---")
         st.markdown("**Art Intelligence Suite**")
-        st.markdown("Explore artwork context with AI assistance")
+        st.markdown("Explore artwork from the Art Institute of Chicago")
         st.markdown("Powered by:")
         st.markdown("- Art Institute of Chicago API")
-        st.markdown("- Ollama LLM")
         st.markdown("- DuckDuckGo Search")
 
     if not st.session_state.selected_artist:
